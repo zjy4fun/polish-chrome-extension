@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "name in manifest.json",
-  "description": "description in manifest.json",
+  "name": "Polish - 文本润色助手",
+  "description": "利用 AI 智能润色文本，让你的表达更专业、更清晰",
+  "version": "1.0.0",
   "options_ui": {
     "page": "src/pages/options/index.html"
   },
@@ -11,21 +12,28 @@
       "32": "icon-32.png"
     }
   },
-  "chrome_url_overrides": {
-    "newtab": "src/pages/newtab/index.html"
-  },
   "icons": {
     "128": "icon-128.png"
   },
   "permissions": [
-    "activeTab"
+    "activeTab",
+    "storage",
+    "contextMenus"
   ],
+  "commands": {
+    "trigger-polish": {
+      "suggested_key": {
+        "default": "Alt+O",
+        "mac": "Alt+O"
+      },
+      "description": "触发文本润色"
+    }
+  },
   "content_scripts": [
     {
       "matches": [
         "http://*/*",
-        "https://*/*",
-        "<all_urls>"
+        "https://*/*"
       ],
       "js": [
         "src/pages/content/index.tsx"
@@ -35,7 +43,6 @@
       ]
     }
   ],
-  "devtools_page": "src/pages/devtools/index.html",
   "web_accessible_resources": [
     {
       "resources": [
@@ -43,7 +50,7 @@
         "icon-128.png",
         "icon-32.png"
       ],
-      "matches": []
+      "matches": ["http://*/*", "https://*/*"]
     }
   ]
 }

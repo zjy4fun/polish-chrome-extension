@@ -1,24 +1,137 @@
-import React from 'react';
-import logo from '@assets/img/logo.svg';
+import React, { useState, useEffect } from 'react';
+import type { PolishStyle } from '@src/shared/types';
+import { POLISH_STYLES } from '@src/shared/constants';
+import {
+  hasApiKey,
+  getDefaultStyle,
+  saveDefaultStyle,
+} from '@src/shared/storage';
 
-export default function Popup() {
+export default function Popup(): React.ReactElement {
+  const [isApiKeyConfigured, setIsApiKeyConfigured] = useState(false);
+  const [currentStyle, setCurrentStyle] = useState<PolishStyle>('formal');
+  const [isLoading, setIsLoading] = useState(true);
+  const [triggerStatus, setTriggerStatus] = useState<'idle' | 'sent'>('idle');
+
+  useEffect(() => {
+    loadState();
+  }, []);
+
+  async function loadState(): Promise<void> {
+    try {
+      const [hasKey, style] = await Promise.all([
+        hasApiKey(),
+        getDefaultStyle(),
+      ]);
+      setIsApiKeyConfigured(hasKey);
+      setCurrentStyle(style);
+    } catch (error) {
+      console.error('Failed to load state:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleStyleChange(style: PolishStyle): Promise<void> {
+    setCurrentStyle(style);
+    await saveDefaultStyle(style);
+  }
+
+  async function handleTriggerPolish(): Promise<void> {
+    try {
+      const [activeTab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+
+      if (activeTab?.id) {
+        await chrome.tabs.sendMessage(activeTab.id, { type: 'TRIGGER_POLISH' });
+        setTriggerStatus('sent');
+        setTimeout(() => window.close(), 500);
+      }
+    } catch (error) {
+      console.error('Failed to trigger polish:', error);
+    }
+  }
+
+  function handleOpenOptions(): void {
+    chrome.runtime.openOptionsPage();
+  }
+
+  const styleOptions = Object.values(POLISH_STYLES);
+
+  if (isLoading) {
+    return (
+      <div className="popup-container">
+        <div className="loading">加载中...</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="absolute top-0 left-0 right-0 bottom-0 text-center h-full p-3 bg-gray-800">
-      <header className="flex flex-col items-center justify-center text-white">
-        <img src={logo} className="h-36 pointer-events-none animate-spin-slow" alt="logo" />
-        <p>
-          Edit <code>src/pages/popup/Popup.jsx</code> and save to reload.
-        </p>
-        <a
-          className="text-blue-400"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
+    <div className="popup-container">
+      {/* 头部 */}
+      <header className="popup-header">
+        <div className="popup-logo">
+          <span className="logo-icon">✨</span>
+          <span className="logo-text">Polish</span>
+        </div>
+        <button
+          className="settings-btn"
+          onClick={handleOpenOptions}
+          aria-label="设置"
         >
-          Learn React!
-        </a>
-        <p>Popup styled with TailwindCSS!</p>
+          ⚙️
+        </button>
       </header>
+
+      {/* API Key 状态 */}
+      <div className={`api-status ${isApiKeyConfigured ? 'configured' : 'not-configured'}`}>
+        {isApiKeyConfigured ? (
+          <>
+            <span className="status-icon">✓</span>
+            <span>API Key 已配置</span>
+          </>
+        ) : (
+          <>
+            <span className="status-icon">!</span>
+            <span>请先配置 API Key</span>
+            <button className="configure-btn" onClick={handleOpenOptions}>
+              去配置
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* 风格选择 */}
+      <section className="style-section">
+        <h3>润色风格</h3>
+        <div className="style-buttons">
+          {styleOptions.map((style) => (
+            <button
+              key={style.id}
+              className={`style-btn ${currentStyle === style.id ? 'active' : ''}`}
+              onClick={() => handleStyleChange(style.id)}
+            >
+              {style.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* 触发按钮 */}
+      <button
+        className="trigger-btn"
+        onClick={handleTriggerPolish}
+        disabled={!isApiKeyConfigured || triggerStatus === 'sent'}
+      >
+        {triggerStatus === 'sent' ? '已触发 ✓' : '润色当前输入框'}
+      </button>
+
+      {/* 快捷键提示 */}
+      <div className="shortcut-hint">
+        快捷键: <kbd>Alt + O</kbd>
+      </div>
     </div>
   );
 }
