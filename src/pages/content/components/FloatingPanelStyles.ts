@@ -24,24 +24,27 @@ export const floatingPanelStyles = `
   }
 
   .polish-floating-panel.polish-selection-prompt {
-    min-width: auto;
-    max-width: 220px;
-    padding: 8px;
+    min-width: 0;
+    width: fit-content;
+    max-width: none;
+    padding: 6px;
   }
 
   .polish-selection-btn {
-    width: 100%;
+    width: auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 8px 14px;
+    padding: 6px 10px;
     border-radius: 999px;
     border: 1px solid #667eea;
     background: #667eea;
     color: #ffffff;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
     cursor: pointer;
     transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
   }
