@@ -16,13 +16,18 @@ import {
   getInputText,
   setInputText,
   getElementPosition,
+  getSelectionInfo,
+  replaceSelectionText,
 } from './utils/inputFilter';
+import type { SelectionInfo } from './utils/inputFilter';
 
 console.log('[Polish] Content script loaded');
 
 /**
  * 全局状态
  */
+type PolishTarget = 'input' | 'selection';
+
 let currentInputElement: HTMLElement | null = null;
 let shadowHost: HTMLDivElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
@@ -33,6 +38,11 @@ let originalText = '';
 let polishedText = '';
 let currentError: PolishError | null = null;
 let currentStyle: PolishStyle = 'formal';
+let currentPolishTarget: PolishTarget = 'input';
+let currentSelectionInfo: SelectionInfo | null = null;
+let isSelectionPromptVisible = false;
+let isSelectionLocked = false;
+let selectionUpdateHandle: number | null = null;
 
 /**
  * 初始化 Shadow DOM 容器
@@ -80,6 +90,8 @@ function renderPanel(): void {
       error={currentError}
       currentStyle={currentStyle}
       position={panelPosition}
+      showPrompt={isSelectionPromptVisible}
+      onPrompt={handleSelectionPrompt}
       onAccept={handleAccept}
       onClose={handleClose}
       onRetry={handleRetry}
@@ -88,12 +100,89 @@ function renderPanel(): void {
   );
 }
 
+function scheduleSelectionPromptUpdate(): void {
+  if (selectionUpdateHandle !== null) {
+    return;
+  }
+
+  selectionUpdateHandle = window.setTimeout(() => {
+    selectionUpdateHandle = null;
+    updateSelectionPrompt();
+  }, 60);
+}
+
+function updateSelectionPrompt(): void {
+  if (panelState !== 'idle') {
+    isSelectionPromptVisible = false;
+    renderPanel();
+    return;
+  }
+
+  if (!currentInputElement || isSelectionLocked) {
+    if (!isSelectionLocked) {
+      currentSelectionInfo = null;
+    }
+    isSelectionPromptVisible = false;
+    renderPanel();
+    return;
+  }
+
+  const selectionInfo = getSelectionInfo(currentInputElement);
+  if (selectionInfo) {
+    currentSelectionInfo = selectionInfo;
+    isSelectionPromptVisible = true;
+  } else {
+    currentSelectionInfo = null;
+    isSelectionPromptVisible = false;
+  }
+
+  renderPanel();
+}
+
+function releaseSelectionLock(): void {
+  isSelectionLocked = false;
+  currentPolishTarget = 'input';
+}
+
+function prepareForInputPolish(): void {
+  currentPolishTarget = 'input';
+  isSelectionLocked = false;
+  currentSelectionInfo = null;
+  isSelectionPromptVisible = false;
+  renderPanel();
+}
+
+function handleSelectionPrompt(): void {
+  if (!currentInputElement || !currentSelectionInfo) {
+    return;
+  }
+
+  const selectionSnapshot = currentSelectionInfo;
+  currentPolishTarget = 'selection';
+  isSelectionLocked = true;
+  isSelectionPromptVisible = false;
+  renderPanel();
+
+  getDefaultStyle().then((style) => {
+    if (currentPolishTarget !== 'selection' || currentSelectionInfo !== selectionSnapshot) {
+      return;
+    }
+
+    currentStyle = style;
+    triggerPolish(selectionSnapshot.text);
+  });
+}
+
 /**
  * 处理接受操作
  */
 function handleAccept(): void {
   if (currentInputElement && polishedText) {
-    setInputText(currentInputElement, polishedText);
+    if (currentPolishTarget === 'selection' && currentSelectionInfo) {
+      replaceSelectionText(currentInputElement, currentSelectionInfo.snapshot, polishedText);
+    } else {
+      setInputText(currentInputElement, polishedText);
+    }
   }
   handleClose();
 }
@@ -106,7 +195,8 @@ function handleClose(): void {
   originalText = '';
   polishedText = '';
   currentError = null;
-  renderPanel();
+  releaseSelectionLock();
+  updateSelectionPrompt();
 }
 
 /**
@@ -114,7 +204,7 @@ function handleClose(): void {
  */
 function handleRetry(): void {
   if (originalText) {
-    triggerPolish();
+    triggerPolish(originalText);
   }
 }
 
@@ -127,20 +217,20 @@ function handleStyleChange(style: PolishStyle): void {
 
   // 如果已有文本，自动重新润色
   if (originalText && panelState !== 'loading') {
-    triggerPolish();
+    triggerPolish(originalText);
   }
 }
 
 /**
  * 触发润色
  */
-async function triggerPolish(): Promise<void> {
+async function triggerPolish(textOverride?: string): Promise<void> {
   if (!currentInputElement) {
     console.log('[Polish] No active input element');
     return;
   }
 
-  const text = getInputText(currentInputElement);
+  const text = textOverride ?? getInputText(currentInputElement);
   if (!text.trim()) {
     panelState = 'error';
     currentError = { code: 'EMPTY_TEXT', message: '请先输入文本' };
@@ -152,6 +242,7 @@ async function triggerPolish(): Promise<void> {
   panelState = 'loading';
   currentError = null;
   polishedText = '';
+  isSelectionPromptVisible = false;
   renderPanel();
 
   try {
@@ -189,6 +280,7 @@ function trackFocusedInput(): void {
     const target = event.target as Element;
     if (isSafeInput(target)) {
       currentInputElement = target;
+      scheduleSelectionPromptUpdate();
     }
   });
 
@@ -199,8 +291,22 @@ function trackFocusedInput(): void {
       if (!isSafeInput(activeElement)) {
         // 保留最后一个有效的输入元素引用
       }
+      scheduleSelectionPromptUpdate();
     }, 100);
   });
+}
+
+/**
+ * 跟踪选中文本变化
+ */
+function trackSelectionChanges(): void {
+  const scheduleUpdate = (): void => {
+    scheduleSelectionPromptUpdate();
+  };
+
+  document.addEventListener('selectionchange', scheduleUpdate);
+  document.addEventListener('mouseup', scheduleUpdate);
+  document.addEventListener('keyup', scheduleUpdate);
 }
 
 /**
@@ -217,6 +323,7 @@ function listenForMessages(): void {
         }
 
         if (currentInputElement) {
+          prepareForInputPolish();
           // 加载默认风格
           getDefaultStyle().then((style) => {
             currentStyle = style;
@@ -239,6 +346,7 @@ function listenForMessages(): void {
 function init(): void {
   initShadowContainer();
   trackFocusedInput();
+  trackSelectionChanges();
   listenForMessages();
   console.log('[Polish] Content script initialized');
 }
