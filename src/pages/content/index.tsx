@@ -15,7 +15,6 @@ import {
   isSafeInput,
   getInputText,
   setInputText,
-  getElementPosition,
   getSelectionInfo,
   replaceSelectionText,
 } from './utils/inputFilter';
@@ -43,6 +42,10 @@ let currentSelectionInfo: SelectionInfo | null = null;
 let isSelectionPromptVisible = false;
 let isSelectionLocked = false;
 let selectionUpdateHandle: number | null = null;
+let lastPanelHeight: number | null = null;
+let lastPanelWidth: number | null = null;
+
+const PANEL_MARGIN = 8;
 
 /**
  * 初始化 Shadow DOM 容器
@@ -70,17 +73,82 @@ function initShadowContainer(): void {
   reactRoot = createRoot(mountPoint);
 }
 
+function calculatePanelPosition(element: HTMLElement): { top: number; left: number } {
+  const rect = element.getBoundingClientRect();
+  const elementTop = rect.top + window.scrollY;
+  const elementLeft = rect.left + window.scrollX;
+  const defaultTop = elementTop + rect.height + PANEL_MARGIN;
+
+  if (!lastPanelHeight) {
+    return {
+      top: defaultTop,
+      left: elementLeft,
+    };
+  }
+
+  const viewportTop = window.scrollY;
+  const viewportBottom = window.scrollY + window.innerHeight;
+  const spaceBelow = viewportBottom - defaultTop;
+  const spaceAbove = elementTop - viewportTop - PANEL_MARGIN;
+
+  let top = defaultTop;
+  if (spaceBelow < lastPanelHeight && spaceAbove >= lastPanelHeight) {
+    top = elementTop - lastPanelHeight - PANEL_MARGIN;
+  } else {
+    top = Math.min(defaultTop, viewportBottom - lastPanelHeight - PANEL_MARGIN);
+  }
+
+  if (top < viewportTop + PANEL_MARGIN) {
+    top = viewportTop + PANEL_MARGIN;
+  }
+
+  let left = elementLeft;
+  if (lastPanelWidth) {
+    const viewportLeft = window.scrollX;
+    const viewportRight = window.scrollX + window.innerWidth;
+    if (left + lastPanelWidth + PANEL_MARGIN > viewportRight) {
+      left = Math.max(viewportRight - lastPanelWidth - PANEL_MARGIN, viewportLeft + PANEL_MARGIN);
+    }
+  }
+
+  return { top, left };
+}
+
+function measurePanelSize(): void {
+  if (!shadowRoot) {
+    return;
+  }
+
+  const panelElement = shadowRoot.querySelector('.polish-floating-panel') as HTMLElement | null;
+  if (!panelElement) {
+    return;
+  }
+
+  const rect = panelElement.getBoundingClientRect();
+  const nextHeight = Math.ceil(rect.height);
+  const nextWidth = Math.ceil(rect.width);
+
+  if (nextHeight === 0 || nextWidth === 0) {
+    return;
+  }
+
+  if (nextHeight !== lastPanelHeight || nextWidth !== lastPanelWidth) {
+    lastPanelHeight = nextHeight;
+    lastPanelWidth = nextWidth;
+
+    if (currentInputElement) {
+      renderPanel();
+    }
+  }
+}
+
 /**
  * 渲染浮窗
  */
 function renderPanel(): void {
   if (!reactRoot || !currentInputElement) return;
 
-  const position = getElementPosition(currentInputElement);
-  const panelPosition = {
-    top: position.top + position.height + 8,
-    left: position.left,
-  };
+  const panelPosition = calculatePanelPosition(currentInputElement);
 
   reactRoot.render(
     <FloatingPanel
@@ -98,6 +166,10 @@ function renderPanel(): void {
       onStyleChange={handleStyleChange}
     />
   );
+
+  requestAnimationFrame(() => {
+    measurePanelSize();
+  });
 }
 
 function scheduleSelectionPromptUpdate(): void {
