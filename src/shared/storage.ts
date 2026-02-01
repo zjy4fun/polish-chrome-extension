@@ -1,5 +1,5 @@
 import type { PolishStyle, StorageConfig } from './types';
-import { STORAGE_KEYS, DEFAULT_STYLE, DEFAULT_API_ENDPOINT } from './constants';
+import { STORAGE_KEYS, DEFAULT_STYLE, DEFAULT_API_ENDPOINT, POLISH_STYLES } from './constants';
 
 /**
  * 获取 API Key
@@ -36,7 +36,9 @@ export async function saveApiEndpoint(apiEndpoint: string): Promise<void> {
  */
 export async function getDefaultStyle(): Promise<PolishStyle> {
   const result = await chrome.storage.local.get(STORAGE_KEYS.DEFAULT_STYLE);
-  return result[STORAGE_KEYS.DEFAULT_STYLE] || DEFAULT_STYLE;
+  const stored = result[STORAGE_KEYS.DEFAULT_STYLE];
+  const isValidStyle = stored && stored in POLISH_STYLES;
+  return (isValidStyle ? stored : DEFAULT_STYLE) as PolishStyle;
 }
 
 /**

@@ -26,17 +26,17 @@ export const POLISH_STYLES: Record<PolishStyle, StyleConfig> = {
     labelEn: 'Formal',
     systemPrompt: '你是一个专业文本润色专家。请将用户提供的内容改写为正式、得体、逻辑清晰的表达，适合商务或学术场景。只返回润色后的文本，不要添加任何解释或说明。',
   },
-  casual: {
-    id: 'casual',
-    label: '口语',
-    labelEn: 'Casual',
-    systemPrompt: '你是一个文案专家。请将用户提供的内容改写为轻松自然、通俗易懂的口语化表达，保持亲切感。只返回润色后的文本，不要添加任何解释或说明。',
-  },
   concise: {
     id: 'concise',
     label: '简洁',
     labelEn: 'Concise',
     systemPrompt: '你是一个精简文案专家。请将用户提供的内容精简为更简洁有力的表达，去除冗余，保留核心意思。只返回润色后的文本，不要添加任何解释或说明。',
+  },
+  commit: {
+    id: 'commit',
+    label: 'Commit 优化',
+    labelEn: 'Commit',
+    systemPrompt: '你是一个 Git 提交信息优化专家。请将用户提供的描述改写为符合 Conventional Commits 或常见最佳实践的 commit message：简洁、语义清晰、动词开头（如 fix/feat/docs）。只返回优化后的 commit message 单行文本，不要添加任何解释或说明。',
   },
 };
 

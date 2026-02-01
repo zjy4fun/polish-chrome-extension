@@ -76,6 +76,81 @@ export function getInputText(element: HTMLElement): string {
   return '';
 }
 
+export type InputSelectionSnapshot = {
+  kind: 'input';
+  selectionStart: number;
+  selectionEnd: number;
+  selectionDirection: 'forward' | 'backward' | 'none';
+};
+
+export type ContentEditableSelectionSnapshot = {
+  kind: 'contenteditable';
+  range: Range;
+};
+
+export type SelectionSnapshot = InputSelectionSnapshot | ContentEditableSelectionSnapshot;
+
+export interface SelectionInfo {
+  text: string;
+  snapshot: SelectionSnapshot;
+}
+
+/**
+ * 获取输入元素的选中文本与快照
+ */
+export function getSelectionInfo(element: HTMLElement): SelectionInfo | null {
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    const selectionStart = element.selectionStart;
+    const selectionEnd = element.selectionEnd;
+    if (selectionStart === null || selectionEnd === null || selectionStart === selectionEnd) {
+      return null;
+    }
+
+    const selectedText = element.value.slice(selectionStart, selectionEnd);
+    if (!selectedText.trim()) {
+      return null;
+    }
+
+    return {
+      text: selectedText,
+      snapshot: {
+        kind: 'input',
+        selectionStart,
+        selectionEnd,
+        selectionDirection: element.selectionDirection ?? 'none',
+      },
+    };
+  }
+
+  if (element.isContentEditable) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      return null;
+    }
+
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    if (!anchorNode || !focusNode || !element.contains(anchorNode) || !element.contains(focusNode)) {
+      return null;
+    }
+
+    const selectedText = selection.toString();
+    if (!selectedText.trim()) {
+      return null;
+    }
+
+    return {
+      text: selectedText,
+      snapshot: {
+        kind: 'contenteditable',
+        range: selection.getRangeAt(0).cloneRange(),
+      },
+    };
+  }
+
+  return null;
+}
+
 /**
  * 设置输入元素的文本内容
  */
@@ -109,6 +184,62 @@ export function setInputText(element: HTMLElement, text: string): void {
       element.innerText = text;
       element.dispatchEvent(new Event('input', { bubbles: true }));
     }
+  }
+}
+
+/**
+ * 替换当前选中文本
+ */
+export function replaceSelectionText(
+  element: HTMLElement,
+  snapshot: SelectionSnapshot,
+  text: string
+): void {
+  if (snapshot.kind === 'input') {
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+      return;
+    }
+
+    element.focus();
+    element.setSelectionRange(
+      snapshot.selectionStart,
+      snapshot.selectionEnd,
+      snapshot.selectionDirection
+    );
+
+    const success = document.execCommand('insertText', false, text);
+    if (!success) {
+      element.setRangeText(text, snapshot.selectionStart, snapshot.selectionEnd, 'end');
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    return;
+  }
+
+  if (!element.isContentEditable) {
+    return;
+  }
+
+  if (!element.contains(snapshot.range.commonAncestorContainer)) {
+    setInputText(element, text);
+    return;
+  }
+
+  element.focus();
+  const selection = window.getSelection();
+  if (!selection) {
+    setInputText(element, text);
+    return;
+  }
+
+  selection.removeAllRanges();
+  selection.addRange(snapshot.range);
+
+  const success = document.execCommand('insertText', false, text);
+  if (!success) {
+    snapshot.range.deleteContents();
+    snapshot.range.insertNode(document.createTextNode(text));
+    selection.removeAllRanges();
+    element.dispatchEvent(new Event('input', { bubbles: true }));
   }
 }
 

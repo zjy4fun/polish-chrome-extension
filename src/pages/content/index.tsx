@@ -15,14 +15,18 @@ import {
   isSafeInput,
   getInputText,
   setInputText,
-  getElementPosition,
+  getSelectionInfo,
+  replaceSelectionText,
 } from './utils/inputFilter';
+import type { SelectionInfo } from './utils/inputFilter';
 
 console.log('[Polish] Content script loaded');
 
 /**
  * 全局状态
  */
+type PolishTarget = 'input' | 'selection';
+
 let currentInputElement: HTMLElement | null = null;
 let shadowHost: HTMLDivElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
@@ -33,6 +37,15 @@ let originalText = '';
 let polishedText = '';
 let currentError: PolishError | null = null;
 let currentStyle: PolishStyle = 'formal';
+let currentPolishTarget: PolishTarget = 'input';
+let currentSelectionInfo: SelectionInfo | null = null;
+let isSelectionPromptVisible = false;
+let isSelectionLocked = false;
+let selectionUpdateHandle: number | null = null;
+let lastPanelHeight: number | null = null;
+let lastPanelWidth: number | null = null;
+
+const PANEL_MARGIN = 8;
 
 /**
  * 初始化 Shadow DOM 容器
@@ -60,17 +73,82 @@ function initShadowContainer(): void {
   reactRoot = createRoot(mountPoint);
 }
 
+function calculatePanelPosition(element: HTMLElement): { top: number; left: number } {
+  const rect = element.getBoundingClientRect();
+  const elementTop = rect.top + window.scrollY;
+  const elementLeft = rect.left + window.scrollX;
+  const defaultTop = elementTop + rect.height + PANEL_MARGIN;
+
+  if (!lastPanelHeight) {
+    return {
+      top: defaultTop,
+      left: elementLeft,
+    };
+  }
+
+  const viewportTop = window.scrollY;
+  const viewportBottom = window.scrollY + window.innerHeight;
+  const spaceBelow = viewportBottom - defaultTop;
+  const spaceAbove = elementTop - viewportTop - PANEL_MARGIN;
+
+  let top = defaultTop;
+  if (spaceBelow < lastPanelHeight && spaceAbove >= lastPanelHeight) {
+    top = elementTop - lastPanelHeight - PANEL_MARGIN;
+  } else {
+    top = Math.min(defaultTop, viewportBottom - lastPanelHeight - PANEL_MARGIN);
+  }
+
+  if (top < viewportTop + PANEL_MARGIN) {
+    top = viewportTop + PANEL_MARGIN;
+  }
+
+  let left = elementLeft;
+  if (lastPanelWidth) {
+    const viewportLeft = window.scrollX;
+    const viewportRight = window.scrollX + window.innerWidth;
+    if (left + lastPanelWidth + PANEL_MARGIN > viewportRight) {
+      left = Math.max(viewportRight - lastPanelWidth - PANEL_MARGIN, viewportLeft + PANEL_MARGIN);
+    }
+  }
+
+  return { top, left };
+}
+
+function measurePanelSize(): void {
+  if (!shadowRoot) {
+    return;
+  }
+
+  const panelElement = shadowRoot.querySelector('.polish-floating-panel') as HTMLElement | null;
+  if (!panelElement) {
+    return;
+  }
+
+  const rect = panelElement.getBoundingClientRect();
+  const nextHeight = Math.ceil(rect.height);
+  const nextWidth = Math.ceil(rect.width);
+
+  if (nextHeight === 0 || nextWidth === 0) {
+    return;
+  }
+
+  if (nextHeight !== lastPanelHeight || nextWidth !== lastPanelWidth) {
+    lastPanelHeight = nextHeight;
+    lastPanelWidth = nextWidth;
+
+    if (currentInputElement) {
+      renderPanel();
+    }
+  }
+}
+
 /**
  * 渲染浮窗
  */
 function renderPanel(): void {
   if (!reactRoot || !currentInputElement) return;
 
-  const position = getElementPosition(currentInputElement);
-  const panelPosition = {
-    top: position.top + position.height + 8,
-    left: position.left,
-  };
+  const panelPosition = calculatePanelPosition(currentInputElement);
 
   reactRoot.render(
     <FloatingPanel
@@ -80,12 +158,91 @@ function renderPanel(): void {
       error={currentError}
       currentStyle={currentStyle}
       position={panelPosition}
+      showPrompt={isSelectionPromptVisible}
+      onPrompt={handleSelectionPrompt}
       onAccept={handleAccept}
       onClose={handleClose}
       onRetry={handleRetry}
       onStyleChange={handleStyleChange}
     />
   );
+
+  requestAnimationFrame(() => {
+    measurePanelSize();
+  });
+}
+
+function scheduleSelectionPromptUpdate(): void {
+  if (selectionUpdateHandle !== null) {
+    return;
+  }
+
+  selectionUpdateHandle = window.setTimeout(() => {
+    selectionUpdateHandle = null;
+    updateSelectionPrompt();
+  }, 60);
+}
+
+function updateSelectionPrompt(): void {
+  if (panelState !== 'idle') {
+    isSelectionPromptVisible = false;
+    renderPanel();
+    return;
+  }
+
+  if (!currentInputElement || isSelectionLocked) {
+    if (!isSelectionLocked) {
+      currentSelectionInfo = null;
+    }
+    isSelectionPromptVisible = false;
+    renderPanel();
+    return;
+  }
+
+  const selectionInfo = getSelectionInfo(currentInputElement);
+  if (selectionInfo) {
+    currentSelectionInfo = selectionInfo;
+    isSelectionPromptVisible = true;
+  } else {
+    currentSelectionInfo = null;
+    isSelectionPromptVisible = false;
+  }
+
+  renderPanel();
+}
+
+function releaseSelectionLock(): void {
+  isSelectionLocked = false;
+  currentPolishTarget = 'input';
+}
+
+function prepareForInputPolish(): void {
+  currentPolishTarget = 'input';
+  isSelectionLocked = false;
+  currentSelectionInfo = null;
+  isSelectionPromptVisible = false;
+  renderPanel();
+}
+
+function handleSelectionPrompt(): void {
+  if (!currentInputElement || !currentSelectionInfo) {
+    return;
+  }
+
+  const selectionSnapshot = currentSelectionInfo;
+  currentPolishTarget = 'selection';
+  isSelectionLocked = true;
+  isSelectionPromptVisible = false;
+  renderPanel();
+
+  getDefaultStyle().then((style) => {
+    if (currentPolishTarget !== 'selection' || currentSelectionInfo !== selectionSnapshot) {
+      return;
+    }
+
+    currentStyle = style;
+    triggerPolish(selectionSnapshot.text);
+  });
 }
 
 /**
@@ -93,7 +250,11 @@ function renderPanel(): void {
  */
 function handleAccept(): void {
   if (currentInputElement && polishedText) {
-    setInputText(currentInputElement, polishedText);
+    if (currentPolishTarget === 'selection' && currentSelectionInfo) {
+      replaceSelectionText(currentInputElement, currentSelectionInfo.snapshot, polishedText);
+    } else {
+      setInputText(currentInputElement, polishedText);
+    }
   }
   handleClose();
 }
@@ -106,7 +267,8 @@ function handleClose(): void {
   originalText = '';
   polishedText = '';
   currentError = null;
-  renderPanel();
+  releaseSelectionLock();
+  updateSelectionPrompt();
 }
 
 /**
@@ -114,7 +276,7 @@ function handleClose(): void {
  */
 function handleRetry(): void {
   if (originalText) {
-    triggerPolish();
+    triggerPolish(originalText);
   }
 }
 
@@ -127,20 +289,20 @@ function handleStyleChange(style: PolishStyle): void {
 
   // 如果已有文本，自动重新润色
   if (originalText && panelState !== 'loading') {
-    triggerPolish();
+    triggerPolish(originalText);
   }
 }
 
 /**
  * 触发润色
  */
-async function triggerPolish(): Promise<void> {
+async function triggerPolish(textOverride?: string): Promise<void> {
   if (!currentInputElement) {
     console.log('[Polish] No active input element');
     return;
   }
 
-  const text = getInputText(currentInputElement);
+  const text = textOverride ?? getInputText(currentInputElement);
   if (!text.trim()) {
     panelState = 'error';
     currentError = { code: 'EMPTY_TEXT', message: '请先输入文本' };
@@ -152,6 +314,7 @@ async function triggerPolish(): Promise<void> {
   panelState = 'loading';
   currentError = null;
   polishedText = '';
+  isSelectionPromptVisible = false;
   renderPanel();
 
   try {
@@ -189,6 +352,7 @@ function trackFocusedInput(): void {
     const target = event.target as Element;
     if (isSafeInput(target)) {
       currentInputElement = target;
+      scheduleSelectionPromptUpdate();
     }
   });
 
@@ -199,8 +363,22 @@ function trackFocusedInput(): void {
       if (!isSafeInput(activeElement)) {
         // 保留最后一个有效的输入元素引用
       }
+      scheduleSelectionPromptUpdate();
     }, 100);
   });
+}
+
+/**
+ * 跟踪选中文本变化
+ */
+function trackSelectionChanges(): void {
+  const scheduleUpdate = (): void => {
+    scheduleSelectionPromptUpdate();
+  };
+
+  document.addEventListener('selectionchange', scheduleUpdate);
+  document.addEventListener('mouseup', scheduleUpdate);
+  document.addEventListener('keyup', scheduleUpdate);
 }
 
 /**
@@ -217,6 +395,7 @@ function listenForMessages(): void {
         }
 
         if (currentInputElement) {
+          prepareForInputPolish();
           // 加载默认风格
           getDefaultStyle().then((style) => {
             currentStyle = style;
@@ -239,6 +418,7 @@ function listenForMessages(): void {
 function init(): void {
   initShadowContainer();
   trackFocusedInput();
+  trackSelectionChanges();
   listenForMessages();
   console.log('[Polish] Content script initialized');
 }

@@ -23,6 +23,40 @@ export const floatingPanelStyles = `
     transform: translateY(0);
   }
 
+  .polish-floating-panel.polish-selection-prompt {
+    min-width: 0;
+    width: fit-content;
+    max-width: none;
+    padding: 6px;
+  }
+
+  .polish-selection-btn {
+    width: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid #667eea;
+    background: #667eea;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
+  }
+
+  .polish-selection-btn:hover {
+    background: #5a67d8;
+  }
+
+  .polish-selection-btn:active {
+    transform: translateY(1px);
+  }
+
   .polish-header {
     display: flex;
     justify-content: space-between;
