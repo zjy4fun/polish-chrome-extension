@@ -1,7 +1,7 @@
 /**
  * 优化风格类型
  */
-export type PolishStyle = 'formal' | 'casual' | 'concise';
+export type PolishStyle = 'formal' | 'concise' | 'commit';
 
 /**
  * 消息类型定义
