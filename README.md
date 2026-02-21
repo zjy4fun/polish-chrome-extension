@@ -1,4 +1,4 @@
-# Polish - 文本润色助手
+# polish-chrome-extension - 文本润色助手
 
 一个浏览器扩展，利用 ChatGPT API 智能润色文本，让你的表达更专业、更清晰。
 
@@ -16,7 +16,7 @@
 
 ```bash
 git clone <repository-url>
-cd polish
+cd polish-chrome-extension
 npm install --legacy-peer-deps
 ```
 

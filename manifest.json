@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Polish - 文本润色助手",
+  "name": "polish-chrome-extension - 文本润色助手",
   "description": "利用 AI 智能润色文本，让你的表达更专业、更清晰",
   "version": "1.0.0",
   "options_ui": {
